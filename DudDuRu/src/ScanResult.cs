@@ -9,7 +9,16 @@ namespace DudDuRu
 {
     public class ScanResult
     {
-        public IDictionary<FileInfo, ISet<FileInfo>> fileList = new SortedDictionary<FileInfo, ISet<FileInfo>>(Comparer<FileInfo>.Create((a, b) => a.FullName.CompareTo(b.FullName)));
-        public IDictionary<FileInfo, bool> keepList = new Dictionary<FileInfo, bool>();
+        public int NumDuplicates { get; set; }
+        /** [Represented file, duplicate files of the key] */
+        public IDictionary<FileInfo, ISet<FileInfo>> FileList { get; set; }
+        /** [File, Keep or remove] */
+        public IDictionary<FileInfo, bool> RemoveList { get; set; }
+
+        public ScanResult()
+        {
+            this.FileList = new SortedDictionary<FileInfo, ISet<FileInfo>>(Comparer<FileInfo>.Create((a, b) => a.FullName.CompareTo(b.FullName)));
+            this.RemoveList = new Dictionary<FileInfo, bool>();
+        }
     }
 }

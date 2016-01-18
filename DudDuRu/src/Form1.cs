@@ -35,7 +35,6 @@ namespace DudDuRu
             ActiveControl = menuStrip1; // Hide cursor
 
             drawItemEventHandler = new System.Windows.Forms.DrawItemEventHandler(listBox_details_DrawItem);
-            listBox_details.DrawItem += drawItemEventHandler;
         }
         #endregion
 
@@ -60,12 +59,15 @@ namespace DudDuRu
         private void button_scan_Click(object sender, EventArgs e)
         {
             button_scan.Enabled = false;
+            listBox_details.DrawItem -= drawItemEventHandler;
+            duplicates = null;
+
             listBox_overview.Items.Clear();
             listBox_details.Items.Clear();
             textBox_filePath.Clear();
             toolStripProgressBar1.Value = 0;
             toolStripStatusLabel1.Text = "";
-            duplicates = null;
+            
             backgroundWorker_scan.RunWorkerAsync();
         }
 
@@ -82,9 +84,11 @@ namespace DudDuRu
 
         private void backgroundWorker_scan_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
         {
-            if (duplicates.fileList.Count > 0) {
+            if (duplicates.FileList.Count > 0) {
+                MessageBox.Show(String.Format("Found {0} duplicates", duplicates.NumDuplicates), "Scan completed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                listBox_details.DrawItem += drawItemEventHandler;
                 listBox_overview.Items.Add("[OVERVIEW]");
-                listBox_overview.Items.AddRange(duplicates.fileList.Keys.ToArray());
+                listBox_overview.Items.AddRange(duplicates.FileList.Keys.ToArray());
                 listBox_overview.SelectedIndex = 0;
             } else {
                 MessageBox.Show("No duplicates found", "Scan completed", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -100,10 +104,10 @@ namespace DudDuRu
             listBox_details.Items.Clear();
             textBox_filePath.Clear();
             if (listBox_overview.SelectedIndex == 0) {
-                foreach (ISet<FileInfo> list in duplicates.fileList.Values)
+                foreach (ISet<FileInfo> list in duplicates.FileList.Values)
                     listBox_details.Items.AddRange(list.ToArray());
             } else if (listBox_overview.SelectedIndex > 0) {
-                listBox_details.Items.AddRange(duplicates.fileList[listBox_overview.SelectedItem as FileInfo].ToArray());
+                listBox_details.Items.AddRange(duplicates.FileList[listBox_overview.SelectedItem as FileInfo].ToArray());
             }
         }
 
@@ -118,7 +122,7 @@ namespace DudDuRu
         #region listbox_details events
         private void listBox_details_DrawItem(object sender, DrawItemEventArgs e)
         {
-            bool strikeout = !duplicates.keepList[listBox_details.Items[e.Index] as FileInfo];
+            bool strikeout = duplicates.RemoveList[listBox_details.Items[e.Index] as FileInfo];
             e.DrawBackground();
 
             Brush fgBrush = strikeout ? Brushes.Gray : Brushes.SteelBlue;
@@ -156,18 +160,18 @@ namespace DudDuRu
         #region mouse right click events
         private void ToolStripMenuItem_Click_keep(object sender, EventArgs e)
         {
-            setListBox_details(true);
+            setListBox_details(false);
         }
 
         private void ToolStripMenuItem_Click_remove(object sender, EventArgs e)
         {
-            setListBox_details(false);
+            setListBox_details(true);
         }
 
         private void setListBox_details(bool keep)
         {
             foreach (Object item in listBox_details.SelectedItems)
-                duplicates.keepList[item as FileInfo] = keep;
+                duplicates.RemoveList[item as FileInfo] = keep;
             listBox_details.Refresh();
         }
 
@@ -182,8 +186,10 @@ namespace DudDuRu
         #region menuitem events
         private void removeToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (duplicates==null || MessageBox.Show("Are you sure to move the files marked strikeout to recycle bin?", "Remove", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            if (duplicates==null || MessageBox.Show("Are you sure to move the files marked strikeout to recycle bin?", "Remove", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) {
+                MessageBox.Show("Please choose a directory and scan the files first.", "ACTION", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
+            }
             listBox_details.DrawItem -= drawItemEventHandler;
             backgroundWorker_remove.RunWorkerAsync();
         }
@@ -203,31 +209,31 @@ namespace DudDuRu
         #region backgroundWorker_remove events
         private void backgroundWorker_remove_DoWork(object sender, DoWorkEventArgs e)
         {
-            IDictionary<FileInfo, ISet<FileInfo>> removeList = new Dictionary<FileInfo, ISet<FileInfo>>();
+            IDictionary<FileInfo, ISet<FileInfo>> removedList = new Dictionary<FileInfo, ISet<FileInfo>>();
 
             // Remove files to recycle bin
-            int total = duplicates.fileList.Values.Count;
+            int total = duplicates.FileList.Values.Count;
             int progress = 0;
-            foreach (KeyValuePair<FileInfo, ISet<FileInfo>> pair in duplicates.fileList) {
+            foreach (KeyValuePair<FileInfo, ISet<FileInfo>> pair in duplicates.FileList) {
                 foreach (FileInfo file in pair.Value) {
-                    if (!duplicates.keepList[file]) { 
+                    if (duplicates.RemoveList[file]) { 
                         FileSystem.DeleteFile(file.FullName, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
-                        if (!removeList.ContainsKey(pair.Key))
-                            removeList.Add(pair.Key, new HashSet<FileInfo>());
-                        removeList[pair.Key].Add(file);
+                        if (!removedList.ContainsKey(pair.Key))
+                            removedList.Add(pair.Key, new HashSet<FileInfo>());
+                        removedList[pair.Key].Add(file);
                     }
                 }
                 (sender as BackgroundWorker).ReportProgress((int)(++progress/total*100), "Removing file ...");
             }
 
             // Remove files from duplicates table
-            foreach (KeyValuePair<FileInfo, ISet<FileInfo>> pair in removeList) {
+            foreach (KeyValuePair<FileInfo, ISet<FileInfo>> pair in removedList) {
                 foreach (FileInfo file in pair.Value) {
-                    duplicates.fileList[pair.Key].Remove(file);
-                    duplicates.keepList.Remove(file);
+                    duplicates.FileList[pair.Key].Remove(file);
+                    duplicates.RemoveList.Remove(file);
                 }
-                if (duplicates.fileList[pair.Key].Count <= 1)
-                    duplicates.fileList.Remove(pair.Key);
+                if (duplicates.FileList[pair.Key].Count <= 1)
+                    duplicates.FileList.Remove(pair.Key);
             }
         }
 
@@ -242,7 +248,7 @@ namespace DudDuRu
             listBox_overview.Items.Clear();
             listBox_details.Items.Clear();
             listBox_overview.Items.Add("[OVERVIEW]");
-            listBox_overview.Items.AddRange(duplicates.fileList.Keys.ToArray());
+            listBox_overview.Items.AddRange(duplicates.FileList.Keys.ToArray());
             listBox_overview.SelectedIndex = 0;
             toolStripStatusLabel1.Text = "Ready";
             listBox_details.DrawItem += drawItemEventHandler;
